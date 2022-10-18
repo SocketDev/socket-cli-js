@@ -1,0 +1,7 @@
+{
+  "extends": "@socketsecurity",
+  "root": true,
+  "parserOptions": {
+    "project": "./tsconfig.json"
+  }
+}
