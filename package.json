@@ -1,7 +1,7 @@
 {
   "name": "@socketsecurity/cli",
   "version": "0.0.0",
-  "description": "A GitHub template repo for node modules",
+  "description": "CLI tool for Socket.dev",
   "homepage": "http://github.com/SocketDev/socket-commando",
   "repository": {
     "type": "git",
