@@ -7,6 +7,8 @@ import { messageWithCauses, stackWithCauses } from 'pony-cause'
 import * as cliCommands from './lib/commands/index.js'
 import { meowWithSubcommands } from './lib/utils/meow-with-subcommands.js'
 
+// TODO: Add autocompletion using https://www.npmjs.com/package/omelette
+
 try {
   await meowWithSubcommands(
     cliCommands,
