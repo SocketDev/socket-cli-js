@@ -41,7 +41,7 @@
     "@socketsecurity/eslint-config": "github:socketdev/eslint-config#3db371ebf9694ab47285c8c61012a734c7417c73",
     "@types/chai": "^4.3.3",
     "@types/mocha": "^10.0.0",
-    "@types/node": "^14.18.31",
+    "@types/node": "^18.11.2",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.2",
     "@voxpelli/tsconfig": "^4.0.0",
