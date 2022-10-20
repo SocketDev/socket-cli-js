@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
 
 import chalk from 'chalk'
 import { messageWithCauses, stackWithCauses } from 'pony-cause'
