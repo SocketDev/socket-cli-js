@@ -5,6 +5,7 @@
     "project": "./tsconfig.json"
   },
   "rules": {
+    "@typescript-eslint/quotes": ["error", "single", { "avoidEscape": true, "allowTemplateLiterals": false }],
     "no-console": "warn"
   }
 }
