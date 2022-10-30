@@ -12,5 +12,6 @@
 # Generated types
 *.d.ts
 *.d.ts.map
+!/lib/types/**/*.d.ts
 
 # Library specific ones

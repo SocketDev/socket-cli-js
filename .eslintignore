@@ -1,1 +1,2 @@
 /coverage/**/*
+/lib/types/api.d.ts
