@@ -30,7 +30,7 @@
     "check:installed-check": "installed-check -i eslint-plugin-jsdoc",
     "check:lint": "eslint --report-unused-disable-directives .",
     "check:tsc": "tsc",
-    "check:type-coverage": "type-coverage --detail --strict --at-least 99 --ignore-files 'test/*'",
+    "check:type-coverage": "type-coverage --detail --strict --at-least 95 --ignore-files 'test/*'",
     "check": "run-p -c --aggregate-output check:*",
     "prepare": "husky install",
     "test:mocha": "c8 --reporter=lcov --reporter text mocha 'test/**/*.spec.js'",
@@ -38,10 +38,11 @@
     "test": "run-s check test:*"
   },
   "devDependencies": {
-    "@socketsecurity/eslint-config": "github:socketdev/eslint-config#3db371ebf9694ab47285c8c61012a734c7417c73",
+    "@socketsecurity/eslint-config": "^1.0.0",
     "@types/chai": "^4.3.3",
     "@types/mocha": "^10.0.0",
     "@types/node": "^14.18.31",
+    "@types/prompts": "^2.4.1",
     "@typescript-eslint/eslint-plugin": "^5.36.2",
     "@typescript-eslint/parser": "^5.36.2",
     "@voxpelli/tsconfig": "^4.0.0",
@@ -66,7 +67,9 @@
   },
   "dependencies": {
     "chalk": "^5.1.2",
+    "is-interactive": "^2.0.0",
     "meow": "^11.0.0",
-    "pony-cause": "^2.1.4"
+    "pony-cause": "^2.1.4",
+    "prompts": "^2.4.2"
   }
 }
