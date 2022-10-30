@@ -1929,7 +1929,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "multipart/form-data": { [key: string]: FormData };
+        "multipart/form-data": { [key: string]: never };
       };
     };
   };
