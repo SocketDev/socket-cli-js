@@ -76,6 +76,7 @@
     "is-interactive": "^2.0.0",
     "meow": "^11.0.0",
     "pony-cause": "^2.1.4",
-    "prompts": "^2.4.2"
+    "prompts": "^2.4.2",
+    "terminal-link": "^3.0.0"
   }
 }
