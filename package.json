@@ -74,7 +74,9 @@
     "got": "^12.5.2",
     "hpagent": "^1.2.0",
     "is-interactive": "^2.0.0",
+    "log-symbols": "^5.1.0",
     "meow": "^11.0.0",
+    "ora": "^6.1.2",
     "pony-cause": "^2.1.4",
     "prompts": "^2.4.2",
     "terminal-link": "^3.0.0"
