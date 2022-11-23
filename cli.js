@@ -8,8 +8,12 @@ import * as cliCommands from './lib/commands/index.js'
 import { logSymbols } from './lib/utils/chalk-markdown.js'
 import { AuthError, InputError } from './lib/utils/errors.js'
 import { meowWithSubcommands } from './lib/utils/meow-with-subcommands.js'
+import { updateNotifier } from './lib/utils/update-notifier.js'
 
 // TODO: Add autocompletion using https://www.npmjs.com/package/omelette
+
+// Once per day this will check npm for an update of the module
+await updateNotifier()
 
 try {
   await meowWithSubcommands(

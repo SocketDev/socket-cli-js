@@ -77,6 +77,7 @@
     "ora": "^6.1.2",
     "pony-cause": "^2.1.8",
     "prompts": "^2.4.2",
+    "simple-update-notifier": "^1.0.8",
     "terminal-link": "^3.0.0"
   }
 }
