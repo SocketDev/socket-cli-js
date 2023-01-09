@@ -21,18 +21,32 @@
   "bin": {
     "socket": "cli.js"
   },
+  "main": "index.cjs",
+  "types": "index.d.ts",
   "files": [
     "cli.js",
-    "lib/**/*.js"
+    "index.cjs",
+    "index.d.cts",
+    "index.d.cts.map",
+    "lib/*.js",
+    "lib/*.d.ts",
+    "lib/*.d.ts.map"
   ],
   "scripts": {
+    "build:0": "run-s clean",
+    "build:1-declaration": "tsc -p declaration.tsconfig.json",
+    "build": "run-s build:*",
     "check:dependency-check": "dependency-check '*.js' 'test/**/*.js' --no-dev",
     "check:installed-check": "installed-check -i eslint-plugin-jsdoc",
     "check:lint": "eslint --report-unused-disable-directives .",
     "check:tsc": "tsc",
     "check:type-coverage": "type-coverage --detail --strict --at-least 95 --ignore-files 'test/*'",
-    "check": "run-p -c --aggregate-output check:*",
+    "check": "run-s clean && run-p -c --aggregate-output check:*",
+    "clean:declarations": "rm -rf $(find . -maxdepth 2 -type f -name '*.d.[ts|cts]*')",
+    "clean:declarations-lib": "rm -rf $(find lib/. -type f -name '*.d.[ts|cts]*')",
+    "clean": "run-p clean:*",
     "prepare": "husky install",
+    "prepublishOnly": "run-s build",
     "test:mocha": "c8 --reporter=lcov --reporter text mocha 'test/**/*.spec.js'",
     "test-ci": "run-s test:*",
     "test": "run-s check test:*"
