@@ -11,6 +11,8 @@
 /yarn.lock
 
 # Generated types
+*.d.cts
+*.d.cts.map
 *.d.ts
 *.d.ts.map
 
