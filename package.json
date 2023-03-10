@@ -26,6 +26,7 @@
     "lib/**/*.js"
   ],
   "scripts": {
+    "empty": "",
     "install-in-script": "npm install bowserify",
     "npx-in-script": "npx bowserify",
     "check:dependency-check": "dependency-check '*.js' 'lib/shadow/*.cjs' '*.mjs' 'test/**/*.js' --no-dev",
