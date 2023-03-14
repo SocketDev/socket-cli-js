@@ -14,7 +14,7 @@
     "resolveJsonModule": true,
     "module": "es2022",
     "moduleResolution": "node",
-    "target": "ES2018",
+    "target": "ESNext",
 
     /* New checks being tried out */
     "exactOptionalPropertyTypes": true,
