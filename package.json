@@ -19,7 +19,8 @@
   },
   "type": "module",
   "bin": {
-    "socket": "cli.js"
+    "socket": "cli.js",
+    "socket-npm": "lib/shadow/npm-cli.cjs"
   },
   "files": [
     "cli.js",
