@@ -20,16 +20,14 @@
   "type": "module",
   "bin": {
     "socket": "cli.js",
-    "socket-npm": "lib/shadow/npm-cli.cjs"
+    "socket-npm": "lib/shadow/npm-cli.cjs",
+    "socket-npx": "lib/shadow/npx-cli.cjs"
   },
   "files": [
     "cli.js",
     "lib/**/*.js"
   ],
   "scripts": {
-    "empty": "",
-    "install-in-script": "npm install bowserify",
-    "npx-in-script": "npx bowserify",
     "check:dependency-check": "dependency-check '*.js' 'lib/shadow/*.cjs' '*.mjs' 'test/**/*.js' --no-dev",
     "check:installed-check": "installed-check -i eslint-plugin-jsdoc",
     "check:lint": "eslint --report-unused-disable-directives .",
