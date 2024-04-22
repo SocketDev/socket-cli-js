@@ -73,7 +73,7 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-unicorn": "^45.0.2",
     "husky": "^8.0.1",
-    "installed-check": "^6.0.5",
+    "installed-check": "^9.3.0",
     "mock-fs": "^5.2.0",
     "nock": "^13.3.0",
     "npm-run-all2": "^6.0.2",
