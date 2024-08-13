@@ -82,7 +82,7 @@
     "@types/update-notifier": "^6.0.8",
     "@types/which": "^3.0.4",
     "@types/yargs-parser": "^21.0.3",
-    "@typescript-eslint/eslint-plugin": "^7.17.0",
+    "@typescript-eslint/eslint-plugin": "^8.1.0",
     "@typescript-eslint/parser": "7.10.0",
     "c8": "^10.1.2",
     "chalk": "^5.3.0",
