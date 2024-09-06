@@ -115,7 +115,7 @@
     "tap": "^21.0.0",
     "terminal-link": "^3.0.0",
     "type-coverage": "^2.29.1",
-    "typescript": "~5.4.5",
+    "typescript": "~5.5.4",
     "unplugin-purge-polyfills": "^0.0.4",
     "update-notifier": "^7.2.0",
     "validate-npm-package-name": "^5.0.1"
