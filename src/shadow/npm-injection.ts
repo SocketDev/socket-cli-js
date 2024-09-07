@@ -414,7 +414,7 @@ class SafeArborist extends Arborist {
   constructor(...ctorArgs: ConstructorParameters<ArboristClass>) {
     const mutedArguments = [
       {
-        ...(ctorArgs[0] ?? {}),
+        ...ctorArgs[0],
         audit: true,
         dryRun: true,
         ignoreScripts: true,

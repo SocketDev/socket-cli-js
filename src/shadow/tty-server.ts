@@ -24,7 +24,7 @@ type CaptureState = {
 }
 
 type TTYSeverResult = {
-  captureTTY<RET extends any>(
+  captureTTY<RET>(
     mutexFn: (
       colorLevel: ColorSupportLevel,
       input?: Readable | undefined,

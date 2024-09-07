@@ -1,0 +1,16 @@
+{
+  "settings": {},
+  "rules": {
+    "no-unused-vars": "allow",
+    "no-new-array": "allow",
+    "no-empty-file": "allow",
+    "no-document-cookie": "allow",
+    "no-this-alias": ["deny"],
+    "no-await-in-loop": "allow",
+    "react-in-jsx-scope": "allow",
+    "consistent-function-scoping": "allow",
+    "no-async-endpoint-handlers": "allow",
+    "no-new": "allow",
+    "no-extraneous-class": "allow"
+  }
+}
