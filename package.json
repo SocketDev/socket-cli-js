@@ -43,7 +43,7 @@
     "emoji-regex": "^10.3.0",
     "fast-glob": "^3.3.2",
     "graceful-fs": "^4.2.6",
-    "has-flag": "^4.0.0",
+    "has-flag": "^5.0.1",
     "hpagent": "^1.2.0",
     "ignore": "^5.3.1",
     "ini": "4.1.3",
