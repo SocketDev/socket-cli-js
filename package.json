@@ -35,7 +35,7 @@
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",
     "chalk-table": "^1.0.2",
-    "cli-boxes": "^3.0.0",
+    "cli-boxes": "^4.0.1",
     "cli-spinners": "^2.9.2",
     "cross-spawn": "^7.0.3",
     "dot-prop": "^9.0.0",
