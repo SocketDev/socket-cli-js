@@ -123,7 +123,7 @@
     "oxlint": "^0.9.3",
     "prettier": "3.3.3",
     "read-package-up": "^11.0.0",
-    "rollup": "4.21.2",
+    "rollup": "4.22.5",
     "rollup-plugin-ts": "^3.4.5",
     "tap": "^21.0.1",
     "terminal-link": "^3.0.0",
