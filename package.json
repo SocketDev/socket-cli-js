@@ -130,7 +130,7 @@
     "tap": "^21.0.1",
     "terminal-link": "^3.0.0",
     "type-coverage": "^2.29.1",
-    "typescript": "5.4.5",
+    "typescript": "5.6.3",
     "typescript-eslint": "^8.8.1",
     "unplugin-purge-polyfills": "^0.0.7",
     "update-notifier": "^7.3.1",
