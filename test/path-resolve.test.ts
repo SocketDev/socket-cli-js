@@ -157,7 +157,7 @@ describe('Path Resolve', () => {
         [`${mockPath}/.yarn/some/dir/package.json`]: '{}',
         [`${mockPath}/bower_components/some/dir/package.json`]: '{}',
         [`${mockPath}/coverage/some/dir/package.json`]: '{}',
-        [`${mockPath}/node_modules/socket/package.json`]: '{}',
+        [`${mockPath}/node_modules/@socketsecurity/cli/package.json`]: '{}',
         [`${mockPath}/foo/package-lock.json`]: '{}',
         [`${mockPath}/foo/package.json`]: '{}'
       })
