@@ -8,20 +8,62 @@ import which from 'which'
 
 import { existsSync, findUp, readFileBinary, readFileUtf8 } from './fs'
 import { parseJSONObject } from './json'
-import { getOwn, isObjectObject } from './objects'
+import { isObjectObject } from './objects'
 import { isNonEmptyString } from './strings'
 
 import type { Content as PackageJsonContent } from '@npmcli/package-json'
 
-const PNPM_WORKSPACE = 'pnpm-workspace'
-
 export const AGENTS = ['bun', 'npm', 'pnpm', 'yarn'] as const
-
 export type AgentPlusBun = (typeof AGENTS)[number]
 export type Agent = Exclude<AgentPlusBun, 'bun'>
 export type StringKeyValueObject = { [key: string]: string }
 
-export const LOCKS: Record<string, string> = {
+const numericCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base'
+})
+const { compare: alphaNumericComparator } = numericCollator
+
+const maintainedNodeVersions = (() => {
+  // Under the hood browserlist uses the node-releases package which is out of date:
+  // https://github.com/chicoxyzzy/node-releases/issues/37
+  // So we maintain a manual version list for now.
+  // https://nodejs.org/en/about/previous-releases#looking-for-latest-release-of-a-version-branch
+  const manualPrev = '18.20.4'
+  const manualCurr = '20.18.0'
+  const manualNext = '22.10.0'
+
+  const query = browserslist('maintained node versions')
+    // Trim value, e.g. 'node 22.5.0' to '22.5.0'.
+    .map(s => s.slice(5 /*'node '.length*/))
+    // Sort ascending.
+    .toSorted(alphaNumericComparator)
+  const queryPrev = query.at(0) ?? manualPrev
+  const queryCurr = query.at(1) ?? manualCurr
+  const queryNext = query.at(2) ?? manualNext
+
+  const previous = semver.maxSatisfying(
+    [queryPrev, manualPrev],
+    `^${semver.major(queryPrev)}`
+  )!
+  const current = semver.maxSatisfying(
+    [queryCurr, manualCurr],
+    `^${semver.major(queryCurr)}`
+  )!
+  const next = semver.maxSatisfying(
+    [queryNext, manualNext],
+    `^${semver.major(queryNext)}`
+  )!
+  return Object.freeze(
+    Object.assign([previous, current, next], {
+      previous,
+      current,
+      next
+    })
+  )
+})()
+
+const LOCKS: Record<string, string> = {
   'bun.lockb': 'bun',
   'pnpm-lock.yaml': 'pnpm',
   'pnpm-lock.yml': 'pnpm',
@@ -40,9 +82,47 @@ export const LOCKS: Record<string, string> = {
   'node_modules/.package-lock.json': 'npm'
 }
 
-const MAINTAINED_NODE_VERSIONS = browserslist('maintained node versions')
-  // Trim value, e.g. 'node 22.5.0' to '22.5.0'
-  .map(v => v.slice(5))
+const PNPM_WORKSPACE = 'pnpm-workspace'
+
+type ReadLockFile = (
+  lockPath: string,
+  agentExecPath: string
+) => Promise<string | undefined>
+
+const readLockFileByAgent: Record<AgentPlusBun, ReadLockFile> = (() => {
+  function wrapReader(
+    reader: (
+      lockPath: string,
+      agentExecPath: string
+    ) => Promise<string | undefined>
+  ): ReadLockFile {
+    return async (lockPath: string, agentExecPath: string) => {
+      try {
+        return await reader(lockPath, agentExecPath)
+      } catch {}
+      return undefined
+    }
+  }
+  return {
+    bun: wrapReader(async (lockPath: string, agentExecPath: string) => {
+      let lockBuffer: Buffer | undefined
+      try {
+        lockBuffer = <Buffer>await readFileBinary(lockPath)
+      } catch {
+        return undefined
+      }
+      try {
+        return <string>parseBunLockb(lockBuffer)
+      } catch {}
+      // To print a Yarn lockfile to your console without writing it to disk use `bun bun.lockb`.
+      // https://bun.sh/guides/install/yarnlock
+      return (await spawn(agentExecPath, [lockPath])).stdout
+    }),
+    npm: wrapReader(async (lockPath: string) => await readFileUtf8(lockPath)),
+    pnpm: wrapReader(async (lockPath: string) => await readFileUtf8(lockPath)),
+    yarn: wrapReader(async (lockPath: string) => await readFileUtf8(lockPath))
+  }
+})()
 
 export type DetectOptions = {
   cwd?: string
@@ -57,6 +137,7 @@ export type DetectResult = Readonly<{
   isWorkspace: boolean
   lockPath: string | undefined
   lockSrc: string | undefined
+  minimumNodeVersion: string
   pkgJson: PackageJsonContent | undefined
   pkgJsonPath: string | undefined
   pkgJsonStr: string | undefined
@@ -66,46 +147,6 @@ export type DetectResult = Readonly<{
     node: boolean
   }
 }>
-
-type ReadLockFile = (
-  lockPath: string,
-  agentExecPath?: string
-) => Promise<string | undefined>
-
-const readLockFileByAgent: Record<AgentPlusBun, ReadLockFile> = (() => {
-  const wrapReader =
-    (
-      reader: (
-        lockPath: string,
-        agentExecPath?: string
-      ) => Promise<string | undefined>
-    ): ReadLockFile =>
-    async (lockPath: string, agentExecPath?: string) => {
-      try {
-        return await reader(lockPath, agentExecPath)
-      } catch {}
-      return undefined
-    }
-  return {
-    bun: wrapReader(async (lockPath: string, agentExecPath?: string) => {
-      let lockBuffer: Buffer | undefined
-      try {
-        lockBuffer = <Buffer>await readFileBinary(lockPath)
-      } catch {
-        return undefined
-      }
-      try {
-        return <string>parseBunLockb(lockBuffer)
-      } catch {}
-      // To print a Yarn lockfile to your console without writing it to disk use `bun bun.lockb`.
-      // https://bun.sh/guides/install/yarnlock
-      return (await spawn(agentExecPath ?? 'bun', [lockPath])).stdout
-    }),
-    npm: wrapReader(async (lockPath: string) => await readFileUtf8(lockPath)),
-    pnpm: wrapReader(async (lockPath: string) => await readFileUtf8(lockPath)),
-    yarn: wrapReader(async (lockPath: string) => await readFileUtf8(lockPath))
-  }
-})()
 
 export async function detect({
   cwd = process.cwd(),
@@ -126,8 +167,8 @@ export async function detect({
       ? (parseJSONObject(pkgJsonStr) ?? undefined)
       : undefined
   const pkgManager = <string | undefined>(
-    (isNonEmptyString(getOwn(pkgJson, 'packageManager'))
-      ? pkgJson?.['packageManager']
+    (isNonEmptyString(pkgJson?.['packageManager'])
+      ? pkgJson['packageManager']
       : undefined)
   )
 
@@ -156,16 +197,16 @@ export async function detect({
     agent = 'npm'
     onUnknown?.(pkgManager)
   }
-  const agentExecPath = (await which(agent, { nothrow: true })) ?? agent
 
-  let lockSrc: string | undefined
+  const agentExecPath = (await which(agent, { nothrow: true })) ?? agent
   const targets = {
     browser: false,
     node: true
   }
-
+  let lockSrc: string | undefined
   let isPrivate = false
   let isWorkspace = false
+  let minimumNodeVersion = maintainedNodeVersions.previous
   if (pkgJson) {
     const pkgPath = path.dirname(pkgJsonPath!)
     isPrivate = !!pkgJson['private']
@@ -173,43 +214,39 @@ export async function detect({
       !!pkgJson['workspaces'] ||
       existsSync(path.join(pkgPath, `${PNPM_WORKSPACE}.yaml`)) ||
       existsSync(path.join(pkgPath, `${PNPM_WORKSPACE}.yml`))
-    let browser: boolean | undefined
-    let node: boolean | undefined
-    const browserField = getOwn(pkgJson, 'browser')
+    const browserField = pkgJson['browser']
     if (isNonEmptyString(browserField) || isObjectObject(browserField)) {
-      browser = true
+      targets.browser = true
     }
-    const nodeRange = getOwn(pkgJson['engines'], 'node')
+    const nodeRange = (pkgJson as any)['engines']?.['node']
     if (isNonEmptyString(nodeRange)) {
-      node = MAINTAINED_NODE_VERSIONS.some(v => {
-        const coerced = semver.coerce(nodeRange)
-        return coerced && semver.satisfies(coerced, `^${semver.major(v)}`)
-      })
+      const coerced = semver.coerce(nodeRange)
+      if (coerced && semver.lt(coerced, minimumNodeVersion)) {
+        minimumNodeVersion = coerced.version
+      }
     }
-    const browserslistQuery = getOwn(pkgJson, 'browserslist')
+    const browserslistQuery = <string[] | undefined>pkgJson['browserslist']
     if (Array.isArray(browserslistQuery)) {
       const browserslistTargets = browserslist(browserslistQuery)
+        .map(s => s.toLowerCase())
+        .toSorted(alphaNumericComparator)
       const browserslistNodeTargets = browserslistTargets
         .filter(v => v.startsWith('node '))
-        .map(v => v.slice(5))
-      if (browser === undefined && browserslistTargets.length) {
-        browser = browserslistTargets.length !== browserslistNodeTargets.length
+        .map(v => v.slice(5 /*'node '.length*/))
+      if (!targets.browser && browserslistTargets.length) {
+        targets.browser =
+          browserslistTargets.length !== browserslistNodeTargets.length
       }
-      if (node === undefined && browserslistNodeTargets.length) {
-        node = MAINTAINED_NODE_VERSIONS.some(v =>
-          browserslistNodeTargets.some(t => {
-            const coerced = semver.coerce(t)
-            return coerced && semver.satisfies(coerced, `^${semver.major(v)}`)
-          })
-        )
+      if (browserslistNodeTargets.length) {
+        const coerced = semver.coerce(browserslistNodeTargets[0])
+        if (coerced && semver.lt(coerced, minimumNodeVersion)) {
+          minimumNodeVersion = coerced.version
+        }
       }
     }
-    if (browser !== undefined) {
-      targets.browser = browser
-    }
-    if (node !== undefined) {
-      targets.node = node
-    }
+    targets.node = maintainedNodeVersions.some(v =>
+      semver.satisfies(v, `>=${minimumNodeVersion}`)
+    )
     lockSrc =
       typeof lockPath === 'string'
         ? await readLockFileByAgent[agent](lockPath, agentExecPath)
@@ -225,6 +262,7 @@ export async function detect({
     isWorkspace,
     lockPath,
     lockSrc,
+    minimumNodeVersion,
     pkgJson,
     pkgJsonPath,
     pkgJsonStr,
