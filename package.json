@@ -162,9 +162,11 @@
     "indent-string": "npm:@socketregistry/indent-string@^1",
     "is-core-module": "npm:@socketregistry/is-core-module@^1",
     "isarray": "npm:@socketregistry/isarray@^1",
+    "npm-package-arg": "$npm-package-arg",
     "path-parse": "npm:@socketregistry/path-parse@^1",
     "safe-buffer": "npm:@socketregistry/safe-buffer@^1",
     "safer-buffer": "npm:@socketregistry/safer-buffer@^1",
+    "semver": "$semver",
     "set-function-length": "npm:@socketregistry/set-function-length@^1",
     "side-channel": "npm:@socketregistry/side-channel@^1"
   },
@@ -181,9 +183,11 @@
     "indent-string": "npm:@socketregistry/indent-string@^1",
     "is-core-module": "npm:@socketregistry/is-core-module@^1",
     "isarray": "npm:@socketregistry/isarray@^1",
+    "npm-package-arg": "^12.0.0",
     "path-parse": "npm:@socketregistry/path-parse@^1",
     "safe-buffer": "npm:@socketregistry/safe-buffer@^1",
     "safer-buffer": "npm:@socketregistry/safer-buffer@^1",
+    "semver": "^7.6.3",
     "set-function-length": "npm:@socketregistry/set-function-length@^1",
     "side-channel": "npm:@socketregistry/side-channel@^1"
   },
