@@ -1,6 +1,6 @@
 {
   "name": "@socketsecurity/cli",
-  "version": "0.14.15",
+  "version": "0.14.16",
   "description": "CLI tool for Socket.dev",
   "homepage": "http://github.com/SocketDev/socket-cli",
   "license": "MIT",
@@ -119,7 +119,6 @@
     "eslint-plugin-depend": "^0.11.0",
     "eslint-plugin-n": "^17.11.1",
     "eslint-plugin-unicorn": "^56.0.0",
-    "globby": "^14.0.2",
     "husky": "^9.1.6",
     "is-interactive": "^2.0.0",
     "is-unicode-supported": "^2.1.0",
