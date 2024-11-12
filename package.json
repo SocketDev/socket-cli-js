@@ -43,7 +43,7 @@
     "@cyclonedx/cdxgen": "^10.11.0",
     "@inquirer/prompts": "^7.0.1",
     "@npmcli/promise-spawn": "^8.0.2",
-    "@socketregistry/hyrious__bun.lockb": "1.0.4",
+    "@socketregistry/hyrious__bun.lockb": "1.0.5",
     "@socketsecurity/config": "^2.1.3",
     "@socketsecurity/registry": "^1.0.26",
     "@socketsecurity/sdk": "^1.3.0",
