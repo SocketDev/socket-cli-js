@@ -1,5 +1,5 @@
 import { Comment } from './classes'
-import { Comments } from './scm_comments'
+import * as Comments from './scm_comments'
 import { createDebugLogger } from '../../../utils/misc'
 
 const debug = createDebugLogger(false)

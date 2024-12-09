@@ -18,7 +18,6 @@ const yargsConfig: Options = {
     'branch',
     'committer',
     'commit-message',
-    'default-branch',
     'target-path',
     'scm',
     'sbom-file',
@@ -27,6 +26,7 @@ const yargsConfig: Options = {
   ],
   number: ['pr-number'],
   boolean: [
+    'default-branch',
     'enable-debug',
     'allow-unverified',
     'enable-json',
@@ -87,7 +87,7 @@ export const action: CliSubcommand = {
       branch: string
       committer: string
       commitMessage: string
-      defaultBranch: string
+      defaultBranch: boolean
       targetPath: string
       scm: 'api' | 'github' | 'gitlab'
       sbomFile?: string
@@ -151,13 +151,13 @@ export const action: CliSubcommand = {
       defaultBranch = scm.isDefaultBranch
     }
     const baseApiUrl = process.env['BASE_API_URL'] ?? null
-    // init Core which is just SDK
     let noChange = true
     const socketSdk = await setupSdk()
     if (ignoreCommitFiles) {
       noChange = false
     } else if (isRepo && files?.length > 0) {
       console.log(files)
+      // matchSupportedFiles https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/socketcli.py#L317
       const supportedFiles = await socketSdk
         .getReportSupportedFiles()
         .then(res => {
@@ -177,10 +177,7 @@ export const action: CliSubcommand = {
             }
           )
         })
-
-      noChange = 1
     }
-
     // TODO: ...
   }
 }
