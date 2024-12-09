@@ -159,7 +159,7 @@
     "terminal-link": "^3.0.0",
     "tiny-updater": "^3.5.2",
     "type-coverage": "^2.29.7",
-    "typescript": "5.4.5",
+    "typescript": "5.7.2",
     "typescript-eslint": "^8.17.0",
     "unplugin-purge-polyfills": "^0.0.7"
   },
