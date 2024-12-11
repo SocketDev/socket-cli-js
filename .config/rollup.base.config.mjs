@@ -10,6 +10,7 @@ import rangesIntersect from 'semver/ranges/intersects.js'
 import { purgePolyfills } from 'unplugin-purge-polyfills'
 
 import {
+  isBlessedPackageName,
   isValidPackageName,
   readPackageJsonSync
 } from '@socketsecurity/registry/lib/packages'
@@ -44,7 +45,11 @@ const require = createRequire(import.meta.url)
 const ts = require('rollup-plugin-ts')
 
 const rootPackageJson = require(rootPackageJsonPath)
-const { dependencies: pkgDeps, devDependencies: pkgDevDeps } = rootPackageJson
+const {
+  dependencies: pkgDeps,
+  devDependencies: pkgDevDeps,
+  overrides: pkgOverrides
+} = rootPackageJson
 
 const builtinAliases = builtinModules.reduce((o, n) => {
   o[n] = `node:${n}`
@@ -113,10 +118,7 @@ export default function baseConfig(extendConfig = {}) {
       }
       const id = normalizeId(id_)
       const name = getPackageName(id)
-      if (
-        name.startsWith('@socketregistry/') ||
-        name.startsWith('@socketsecurity/')
-      ) {
+      if (pkgOverrides[name] || isBlessedPackageName(name)) {
         return true
       }
       if (
