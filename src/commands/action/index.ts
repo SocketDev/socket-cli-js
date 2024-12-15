@@ -2,7 +2,7 @@ import yargsParse, { Options } from 'yargs-parser'
 import { CliSubcommand } from '../../utils/meow-with-subcommands'
 import { pluralize } from '@socketsecurity/registry/lib/words'
 import { readFileSync, existsSync } from 'node:fs'
-import { Git } from './git'
+import { Git, gitInfo } from './core/git_interface.ts'
 import { GitError } from 'simple-git'
 import { GitHub } from './core/github'
 import { setupSdk } from '../../utils/sdk'
@@ -10,6 +10,81 @@ import { handleUnsuccessfulApiResponse } from '../../utils/api-helpers'
 import { SocketSdkReturnType } from '@socketsecurity/sdk'
 import { ErrorWithCause } from 'pony-cause'
 import yoctoSpinner from '@socketregistry/yocto-spinner'
+import * as comments from './core/scm_comments.ts'
+import { createDebugLogger } from '../../utils/misc'
+import { Diff, FullScanParams } from './core/classes.ts'
+
+const debug = createDebugLogger(false)
+
+function outputConsoleComments(
+  diffReport: Diff,
+  sbomFileName: string | null = null
+): void {
+  if (diffReport.id !== 'NO_DIFF_RAN') {
+    const consoleSecurityComment =
+      Messages.createConsoleSecurityAlertTable(diffReport)
+    saveSbomFile(diffReport, sbomFileName)
+    console.log(`Socket Full Scan ID: ${diffReport.id}`)
+    if (diffReport.newAlerts.length > 0) {
+      console.log('Security issues detected by Socket Security')
+      const msg = `\n${consoleSecurityComment}`
+      console.log(msg)
+      if (!reportPass(diffReport) && !blockingDisabled) {
+        process.exit(1)
+      } else {
+        // Means only warning alerts with no blocked
+        if (!blockingDisabled) {
+          process.exit(5)
+        }
+      }
+    } else {
+      console.log('No New Security issues detected by Socket Security')
+    }
+  }
+}
+
+function outputConsoleJson(
+  diffReport: Diff,
+  sbomFileName: string | null = null
+): void {
+  if (diffReport.id !== 'NO_DIFF_RAN') {
+    const consoleSecurityComment =
+      Messages.createSecurityCommentJson(diffReport)
+    saveSbomFile(diffReport, sbomFileName)
+    console.log(JSON.stringify(consoleSecurityComment))
+    if (!reportPass(diffReport) && !blockingDisabled) {
+      process.exit(1)
+    } else if (diffReport.newAlerts.length > 0 && !blockingDisabled) {
+      // Means only warning alerts with no blocked
+      process.exit(5)
+    }
+  }
+}
+
+function reportPass(diffReport: Diff): boolean {
+  let reportPassed = true
+  if (diffReport.newAlerts.length > 0) {
+    for (const alert of diffReport.newAlerts) {
+      if (reportPassed && alert.error) {
+        reportPassed = false
+        break
+      }
+    }
+  }
+  return reportPassed
+}
+
+function saveSbomFile(
+  diffReport: Diff,
+  sbomFileName: string | null = null
+): void {
+  if (diffReport !== null && sbomFileName !== null) {
+    Core.saveFile(
+      sbomFileName,
+      JSON.stringify(Core.createSbomOutput(diffReport))
+    )
+  }
+}
 
 const yargsConfig: Options = {
   string: [
@@ -122,9 +197,26 @@ export const action: CliSubcommand = {
       process.exit(1)
     }
     try {
-      const gitRepo = new Git(targetPath)
-      await gitRepo.init()
-      // TODO: https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/socketcli.py#L273
+      const gitRepo = await gitInfo(targetPath)
+      if (!repo) {
+        repo = gitRepo.repoName
+      }
+      if (!commitSHA || commitSHA === '') {
+        commitSHA = gitRepo.commit
+      }
+      if (!branch || branch === '') {
+        branch = gitRepo.branch
+      }
+      if (!committer || committer === '') {
+        committer = gitRepo.committer
+      }
+      if (!commitMessage || commitMessage === '') {
+        commitMessage = gitRepo.commitMessage
+      }
+      if (files.length === 0 && !ignoreCommitFiles) {
+        files = gitRepo.changedFiles
+        isRepo = true
+      }
     } catch (e) {
       if (e instanceof GitError) {
         isRepo = false
@@ -179,5 +271,127 @@ export const action: CliSubcommand = {
         })
     }
     // TODO: ...
+    let setAsPendingHead = false
+    if (defaultBranch) {
+      setAsPendingHead = true
+    }
+    const params = new FullScanParams({
+      repo,
+      branch,
+      commitMessage,
+      commitHash: commitSHA,
+      pullRequest: prNumber,
+      committers: committer,
+      makeDefaultBranch: defaultBranch,
+      setAsPendingHead
+    })
+    let diff: Diff = new Diff()
+    diff.id = 'NO_DIFF_RAN'
+    if (scm !== null && scm.checkEventType() === 'comment') {
+      console.log('Comment initiated flow')
+      debug(
+        `Getting comments for Repo ${scm.repository} for PR ${scm.prNumber}`
+      )
+      const comments = scm.getCommentsForPr(
+        scm.repository,
+        String(scm.prNumber)
+      )
+      debug('Removing comment alerts')
+      scm.removeCommentAlerts(comments)
+    } else if (scm !== null && scm.checkEventType() !== 'comment') {
+      console.log('Push initiated flow')
+      if (noChange) {
+        console.log('No manifest files changes, skipping scan')
+        // console.log("No dependency changes");
+      } else if (scm.checkEventType() === 'diff') {
+        diff = core.createNewDiff(targetPath, params, targetPath, noChange)
+        console.log('Starting comment logic for PR/MR event')
+        debug(
+          `Getting comments for Repo ${scm.repository} for PR ${scm.prNumber}`
+        )
+        const comments = scm.getCommentsForPr(repo, String(prNumber))
+        debug('Removing comment alerts')
+        diff.newAlerts = Comments.removeAlerts(comments, diff.newAlerts)
+        debug('Creating Dependency Overview Comment')
+        const overviewComment = Messages.dependencyOverviewTemplate(diff)
+        debug('Creating Security Issues Comment')
+        const securityComment = Messages.securityCommentTemplate(diff)
+        let newSecurityComment = true
+        let newOverviewComment = true
+        const updateOldSecurityComment =
+          securityComment === null ||
+          securityComment === '' ||
+          (comments.length !== 0 && comments.get('security') !== null)
+        const updateOldOverviewComment =
+          overviewComment === null ||
+          overviewComment === '' ||
+          (comments.length !== 0 && comments.get('overview') !== null)
+        if (diff.newAlerts.length === 0 || disableSecurityIssue) {
+          if (!updateOldSecurityComment) {
+            newSecurityComment = false
+            debug('No new alerts or security issue comment disabled')
+          } else {
+            debug('Updated security comment with no new alerts')
+          }
+        }
+        if (
+          (diff.newPackages.length === 0 &&
+            diff.removedPackages.length === 0) ||
+          disableOverview
+        ) {
+          if (!updateOldOverviewComment) {
+            newOverviewComment = false
+            debug(
+              'No new/removed packages or Dependency Overview comment disabled'
+            )
+          } else {
+            debug('Updated overview comment with no dependencies')
+          }
+        }
+        debug(`Adding comments for ${scmType}`)
+        scm.addSocketComments(
+          securityComment,
+          overviewComment,
+          comments,
+          newSecurityComment,
+          newOverviewComment
+        )
+      } else {
+        console.log('Starting non-PR/MR flow')
+        diff = core.createNewDiff(targetPath, params, targetPath, noChange)
+      }
+      if (enableJson) {
+        debug('Outputting JSON Results')
+        outputConsoleJson(diff, sbomFile)
+      } else {
+        outputConsoleComments(diff, sbomFile)
+      }
+    } else {
+      console.log('API Mode')
+      diff = core.createNewDiff(targetPath, params, targetPath, noChange)
+      if (enableJson) {
+        outputConsoleJson(diff, sbomFile)
+      } else {
+        outputConsoleComments(diff, sbomFile)
+      }
+    }
+    if (diff !== null && licenseMode) {
+      const allPackages: { [key: string]: any } = {}
+      for (const packageId in diff.packages) {
+        const packageInfo: Package = diff.packages[packageId]
+        const output = {
+          id: packageId,
+          name: packageInfo.name,
+          version: packageInfo.version,
+          ecosystem: packageInfo.type,
+          direct: packageInfo.direct,
+          url: packageInfo.url,
+          license: packageInfo.license,
+          license_text: packageInfo.licenseText
+        }
+        allPackages[packageId] = output
+      }
+      core.saveFile(licenseFile, JSON.stringify(allPackages))
+    }
   }
 }

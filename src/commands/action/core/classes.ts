@@ -221,7 +221,7 @@ export class FullScanParams {
   commitMessage?: string
   commitHash?: string
   pullRequest?: number
-  committer?: string
+  committers?: string
   makeDefaultBranch?: boolean
   setAsPendingHead?: boolean
 

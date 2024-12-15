@@ -88,7 +88,7 @@ export class GitHub {
     }
   }
 
-  static checkEventType(): string | null {
+  checkEventType(): string | null {
     switch (env['GITHUB_EVENT_NAME']?.toLowerCase()) {
       case 'push':
         return env['PR_NUMBER'] ? 'diff' : 'main'
@@ -112,7 +112,7 @@ export class GitHub {
     }
   }
 
-  static async addSocketComments(
+  async addSocketComments(
     securityComment: string,
     overviewComment: string,
     comments: Record<string, Comment>,
@@ -132,7 +132,7 @@ export class GitHub {
         )
       } else {
         debug('Posting new Dependency Overview comment')
-        await GitHub.postComment(overviewComment)
+        await this.postComment(overviewComment)
       }
     }
 
@@ -146,19 +146,19 @@ export class GitHub {
         )
       } else {
         debug('Posting new Security Issue comment')
-        await GitHub.postComment(securityComment)
+        await this.postComment(securityComment)
       }
     }
   }
 
-  static async postComment(body: string): Promise<void> {
+  async postComment(body: string): Promise<void> {
     const repo = env['GITHUB_REPOSITORY']?.split('/')[1]
     const path = `repos/${env['GITHUB_REPOSITORY_OWNER']}/${repo}/issues/${env['PR_NUMBER']}/comments`
     const payload = JSON.stringify({ body })
     await fetch(path, { body: payload, method: 'POST', headers })
   }
 
-  static async updateComment(body: string, commentId: string): Promise<void> {
+  async updateComment(body: string, commentId: string): Promise<void> {
     const repo = env['GITHUB_REPOSITORY']?.split('/')[1]
     const path = `repos/${env['GITHUB_REPOSITORY_OWNER']}/${repo}/issues/comments/${commentId}`
     const payload = JSON.stringify({ body })
@@ -174,7 +174,7 @@ export class GitHub {
     file.close()
   }
 
-  static async getCommentsForPr(
+  async getCommentsForPR(
     repo: string,
     pr: string
   ): Promise<Record<string, Comment | Comment[]>> {
@@ -196,14 +196,35 @@ export class GitHub {
     return Comments.checkForSocketComments(comments)
   }
 
-  static async postReaction(commentId: number): Promise<void> {
+  removeCommentAlerts(comments: Record<string, Comment>): void {
+    const securityAlert = comments['security']
+
+    if (securityAlert) {
+      const newBody = Comments.processSecurityComment(securityAlert, comments)
+      this.handleIgnoreReactions(comments)
+      this.updateComment(newBody, String(securityAlert.id))
+    }
+  }
+
+  handleIgnoreReactions(comments: Record<string, Comment[]>): void {
+    if (comments['ignore']) {
+      for (const comment of comments['ignore']) {
+        if (comment.body.includes('SocketSecurity ignore')) {
+          if (!this.commentReactionExists(comment.id)) {
+            this.postReaction(comment.id)
+          }
+        }
+      }
+    }
+  }
+  async postReaction(commentId: number): Promise<void> {
     const repo = env['GITHUB_REPOSITORY']?.split('/')[1]
     const path = `repos/${env['GITHUB_REPOSITORY_OWNER']}/${repo}/issues/comments/${commentId}/reactions`
     const payload = JSON.stringify({ content: '+1' })
     await fetch(path, { body: payload, method: 'POST', headers })
   }
 
-  static async commentReactionExists(commentId: number): Promise<boolean> {
+  async commentReactionExists(commentId: number): Promise<boolean> {
     const repo = env['GITHUB_REPOSITORY']?.split('/')[1]
     const path = `repos/${env['GITHUB_REPOSITORY_OWNER']}/${repo}/issues/comments/${commentId}/reactions`
     try {

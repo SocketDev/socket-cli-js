@@ -172,8 +172,8 @@ export function processSecurityComment(
 
 export function checkForSocketComments(
   comments: Record<string, Comment>
-): Record<string, Comment | Comment[]> {
-  const socketComments: Record<string, Comment | Comment[]> = {}
+): Record<string, Comment> {
+  const socketComments: Record<string, Comment> = {}
 
   for (const [commentId, comment] of Object.entries(comments)) {
     if (comment.body?.includes('socket-security-comment-actions')) {
