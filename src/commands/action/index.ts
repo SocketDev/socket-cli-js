@@ -1,397 +1,260 @@
-import yargsParse, { Options } from 'yargs-parser'
+import { parseArgs } from 'util'
 import { CliSubcommand } from '../../utils/meow-with-subcommands'
-import { pluralize } from '@socketsecurity/registry/lib/words'
-import { readFileSync, existsSync } from 'node:fs'
-import { Git, gitInfo } from './core/git_interface.ts'
-import { GitError } from 'simple-git'
-import { GitHub } from './core/github'
-import { setupSdk } from '../../utils/sdk'
-import { handleUnsuccessfulApiResponse } from '../../utils/api-helpers'
-import { SocketSdkReturnType } from '@socketsecurity/sdk'
-import { ErrorWithCause } from 'pony-cause'
-import yoctoSpinner from '@socketregistry/yocto-spinner'
-import * as comments from './core/scm_comments.ts'
-import { createDebugLogger } from '../../utils/misc'
-import { Diff, FullScanParams } from './core/classes.ts'
+import simpleGit from 'simple-git'
+import { Octokit } from '@octokit/rest'
+import { SocketSdk } from '@socketsecurity/sdk'
+import micromatch from 'micromatch'
+import ignore from 'ignore'
+const octokit = new Octokit()
+const socket = new SocketSdk(
+  'sktsec_MC9u35CaTKpnGaWsT-OG53Xlvp9NoVmzwEzOH1OinZTg_api',
+  { baseUrl: 'https://api-server-staging.onrender.com/v0/' }
+)
 
-const debug = createDebugLogger(false)
+// const options = (github_variables = [
+//   'GITHUB_SHA',
+//   'GITHUB_API_URL',
+//   'GITHUB_REF_TYPE',
+//   'GITHUB_EVENT_NAME',
+//   'GITHUB_WORKSPACE',
+//   'GITHUB_REPOSITORY',
+//   'GITHUB_REF_NAME',
+//   'DEFAULT_BRANCH',
+//   'PR_NUMBER',
+//   'PR_NAME',
+//   'COMMIT_MESSAGE',
+//   'GITHUB_ACTOR',
+//   'GITHUB_ENV',
+//   'GH_API_TOKEN',
+//   'GITHUB_REPOSITORY_OWNER',
+//   'EVENT_ACTION'
+// ])
 
-function outputConsoleComments(
-  diffReport: Diff,
-  sbomFileName: string | null = null
-): void {
-  if (diffReport.id !== 'NO_DIFF_RAN') {
-    const consoleSecurityComment =
-      Messages.createConsoleSecurityAlertTable(diffReport)
-    saveSbomFile(diffReport, sbomFileName)
-    console.log(`Socket Full Scan ID: ${diffReport.id}`)
-    if (diffReport.newAlerts.length > 0) {
-      console.log('Security issues detected by Socket Security')
-      const msg = `\n${consoleSecurityComment}`
-      console.log(msg)
-      if (!reportPass(diffReport) && !blockingDisabled) {
-        process.exit(1)
+// https://github.com/actions/checkout/issues/58#issuecomment-2264361099
+const prNumber = parseInt(
+  process.env['GITHUB_REF']?.match(/refs\/pull\/(\d+)\/merge/)?.at(1) ?? ''
+)
+
+function eventType(): 'main' | 'diff' | 'comment' | 'unsupported' {
+  switch (process.env['GITHUB_EVENT_NAME']) {
+    case 'push':
+      return prNumber ? 'diff' : 'main'
+
+    case 'pull_request':
+      // Provided by github.event.action, add this code below to GitHub action
+      //  if: github.event_name == 'pull_request'
+      //  run: echo "EVENT_ACTION=${{ github.event.action }}" >> $GITHUB_ENV
+      const eventAction = process.env['EVENT_ACTION']
+
+      if (!eventAction) {
+        throw new Error('Missing event action')
+      }
+
+      if (['opened', 'synchronize'].includes(eventAction)) {
+        return 'diff'
       } else {
-        // Means only warning alerts with no blocked
-        if (!blockingDisabled) {
-          process.exit(5)
-        }
+        console.log(`Pull request action: ${eventAction} is not supported`)
+        process.exit()
       }
-    } else {
-      console.log('No New Security issues detected by Socket Security')
-    }
-  }
-}
 
-function outputConsoleJson(
-  diffReport: Diff,
-  sbomFileName: string | null = null
-): void {
-  if (diffReport.id !== 'NO_DIFF_RAN') {
-    const consoleSecurityComment =
-      Messages.createSecurityCommentJson(diffReport)
-    saveSbomFile(diffReport, sbomFileName)
-    console.log(JSON.stringify(consoleSecurityComment))
-    if (!reportPass(diffReport) && !blockingDisabled) {
-      process.exit(1)
-    } else if (diffReport.newAlerts.length > 0 && !blockingDisabled) {
-      // Means only warning alerts with no blocked
-      process.exit(5)
-    }
-  }
-}
+    case 'issue_comment':
+      return 'comment'
 
-function reportPass(diffReport: Diff): boolean {
-  let reportPassed = true
-  if (diffReport.newAlerts.length > 0) {
-    for (const alert of diffReport.newAlerts) {
-      if (reportPassed && alert.error) {
-        reportPassed = false
-        break
-      }
-    }
-  }
-  return reportPassed
-}
-
-function saveSbomFile(
-  diffReport: Diff,
-  sbomFileName: string | null = null
-): void {
-  if (diffReport !== null && sbomFileName !== null) {
-    Core.saveFile(
-      sbomFileName,
-      JSON.stringify(Core.createSbomOutput(diffReport))
-    )
-  }
-}
-
-const yargsConfig: Options = {
-  string: [
-    'api-token',
-    'repo',
-    'branch',
-    'committer',
-    'commit-message',
-    'target-path',
-    'scm',
-    'sbom-file',
-    'commit-sha',
-    'generate-license'
-  ],
-  number: ['pr-number'],
-  boolean: [
-    'default-branch',
-    'enable-debug',
-    'allow-unverified',
-    'enable-json',
-    'disable-overview',
-    'disable-security-issue',
-    'ignore-commit-files',
-    'disable-blocking'
-  ],
-  array: ['files'],
-  default: {
-    'api-token': process.env['SOCKET_SECURITY_API_KEY'] ?? '',
-    'target-path': './',
-    scm: 'api', // or github or gitlab
-    files: []
+    default:
+      throw new Error(`Unknown event type: ${process.env['GITHUB_EVENT_NAME']}`)
   }
 }
 
 export const action: CliSubcommand = {
   description: 'Socket action command',
-  async run(argv_) {
-    const yargv = <any>{
-      ...yargsParse(<string[]>argv_, yargsConfig)
-    }
-    const unknown: string[] = yargv._
-    const { length: unknownLength } = unknown
-    if (unknownLength) {
-      console.error(
-        `Unknown ${pluralize('argument', unknownLength)}: ${yargv._.join(', ')}`
-      )
-      process.exitCode = 1
-      return
-    }
-    console.log('Starting Socket Security Scan Version')
-    let {
-      apiToken,
-      repo,
-      branch,
-      committer,
-      prNumber,
-      commitMessage,
-      defaultBranch,
-      targetPath,
-      scm: scmType,
-      sbomFile,
-      commitSHA,
-      generateLicense,
-      enableDebug,
-      allowUnverified,
-      enableJSON,
-      disableOverview,
-      disableSecurityIssue,
-      files,
-      ignoreCommitFiles,
-      disableBlocking
-    }: {
-      apiToken: string
-      repo: string
-      branch: string
-      committer: string
-      commitMessage: string
-      defaultBranch: boolean
-      targetPath: string
-      scm: 'api' | 'github' | 'gitlab'
-      sbomFile?: string
-      commitSHA?: string
-      generateLicense?: boolean
-      enableDebug: boolean
-      allowUnverified: boolean
-      enableJSON: boolean
-      disableOverview: boolean
-      disableSecurityIssue: boolean
-      ignoreCommitFiles: boolean
-      disableBlocking: boolean
-      prNumber?: number
-      files: string[]
-    } = yargv
-    if (apiToken === undefined) {
-      console.error('Unable to find Socket API Token')
-      process.exit(3)
-    }
-    // TODO: improve to show which file failed
-    let jsonFiles = []
-    let isRepo = false
-    try {
-      jsonFiles = files.map(file => JSON.parse(readFileSync(file, 'utf-8')))
-      isRepo = true
-    } catch {
-      console.error(`Failed to parse or read ${files.join(',')}`)
-      process.exit(3)
-    }
-    if (existsSync(targetPath)) {
-      console.error(`Unable to find path ${targetPath}`)
-      process.exit(1)
-    }
-    try {
-      const gitRepo = await gitInfo(targetPath)
-      if (!repo) {
-        repo = gitRepo.repoName
-      }
-      if (!commitSHA || commitSHA === '') {
-        commitSHA = gitRepo.commit
-      }
-      if (!branch || branch === '') {
-        branch = gitRepo.branch
-      }
-      if (!committer || committer === '') {
-        committer = gitRepo.committer
-      }
-      if (!commitMessage || commitMessage === '') {
-        commitMessage = gitRepo.commitMessage
-      }
-      if (files.length === 0 && !ignoreCommitFiles) {
-        files = gitRepo.changedFiles
-        isRepo = true
-      }
-    } catch (e) {
-      if (e instanceof GitError) {
-        isRepo = false
-        ignoreCommitFiles = true
-      } else {
-        throw e
-      }
-    }
-    if (repo === '') {
-      console.log('Repo name needs to be set')
-      process.exit(2)
-    }
-    let licenseFile = repo
-    if (branch !== '') {
-      licenseFile += `_${branch}`
-    }
-    licenseFile += '.json'
-    let scm = null
-    if (scmType === 'github') {
-      scm = new GitHub()
-    }
-    // TODO: handle GitLab
-    if (scm !== null) {
-      defaultBranch = scm.isDefaultBranch
-    }
-    const baseApiUrl = process.env['BASE_API_URL'] ?? null
-    let noChange = true
-    const socketSdk = await setupSdk()
-    if (ignoreCommitFiles) {
-      noChange = false
-    } else if (isRepo && files?.length > 0) {
-      console.log(files)
-      // matchSupportedFiles https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/socketcli.py#L317
-      const supportedFiles = await socketSdk
-        .getReportSupportedFiles()
-        .then(res => {
-          if (!res.success)
-            handleUnsuccessfulApiResponse(
-              'getReportSupportedFiles',
-              res,
-              yoctoSpinner()
-            )
-          return (res as SocketSdkReturnType<'getReportSupportedFiles'>).data
-        })
-        .catch((cause: Error) => {
-          throw new ErrorWithCause(
-            'Failed getting supported files for report',
-            {
-              cause
-            }
-          )
-        })
-    }
-    // TODO: ...
-    let setAsPendingHead = false
-    if (defaultBranch) {
-      setAsPendingHead = true
-    }
-    const params = new FullScanParams({
-      repo,
-      branch,
-      commitMessage,
-      commitHash: commitSHA,
-      pullRequest: prNumber,
-      committers: committer,
-      makeDefaultBranch: defaultBranch,
-      setAsPendingHead
+  async run(args: readonly string[]) {
+    const { values } = parseArgs({
+      ...args,
+      options: {
+        socketSecurityApiKey: {
+          type: 'string',
+          default: process.env['SOCKET_SECURITY_API_KEY']
+        },
+        githubEventBefore: {
+          type: 'string',
+          default: ''
+        },
+        githubEventAfter: {
+          type: 'string',
+          default: ''
+        }
+      },
+      strict: true,
+      allowPositionals: true
     })
-    let diff: Diff = new Diff()
-    diff.id = 'NO_DIFF_RAN'
-    if (scm !== null && scm.checkEventType() === 'comment') {
+
+    const git = simpleGit()
+    const changedFiles = (
+      await git.diff(
+        process.env['GITHUB_EVENT_NAME'] === 'pull_request'
+          ? ['--name-only', 'HEAD^1', 'HEAD']
+          : ['--name-only', values.githubEventBefore, values.githubEventAfter]
+      )
+    ).split('\n')
+
+    console.log({ changedFiles })
+    // supportedFiles have 3-level depp globs
+    const patterns = Object.values(await socket.getReportSupportedFiles())
+      .flatMap((i: Record<string, any>) => Object.values(i))
+      .flatMap((i: Record<string, any>) => Object.values(i))
+      .flatMap((i: Record<string, any>) => Object.values(i))
+
+    const files = micromatch(changedFiles, patterns)
+    console.log({ files })
+
+    if (eventType() === 'comment') {
       console.log('Comment initiated flow')
-      debug(
-        `Getting comments for Repo ${scm.repository} for PR ${scm.prNumber}`
-      )
-      const comments = scm.getCommentsForPr(
-        scm.repository,
-        String(scm.prNumber)
-      )
-      debug('Removing comment alerts')
-      scm.removeCommentAlerts(comments)
-    } else if (scm !== null && scm.checkEventType() !== 'comment') {
-      console.log('Push initiated flow')
-      if (noChange) {
-        console.log('No manifest files changes, skipping scan')
-        // console.log("No dependency changes");
-      } else if (scm.checkEventType() === 'diff') {
-        diff = core.createNewDiff(targetPath, params, targetPath, noChange)
-        console.log('Starting comment logic for PR/MR event')
-        debug(
-          `Getting comments for Repo ${scm.repository} for PR ${scm.prNumber}`
-        )
-        const comments = scm.getCommentsForPr(repo, String(prNumber))
-        debug('Removing comment alerts')
-        diff.newAlerts = Comments.removeAlerts(comments, diff.newAlerts)
-        debug('Creating Dependency Overview Comment')
-        const overviewComment = Messages.dependencyOverviewTemplate(diff)
-        debug('Creating Security Issues Comment')
-        const securityComment = Messages.securityCommentTemplate(diff)
-        let newSecurityComment = true
-        let newOverviewComment = true
-        const updateOldSecurityComment =
-          securityComment === null ||
-          securityComment === '' ||
-          (comments.length !== 0 && comments.get('security') !== null)
-        const updateOldOverviewComment =
-          overviewComment === null ||
-          overviewComment === '' ||
-          (comments.length !== 0 && comments.get('overview') !== null)
-        if (diff.newAlerts.length === 0 || disableSecurityIssue) {
-          if (!updateOldSecurityComment) {
-            newSecurityComment = false
-            debug('No new alerts or security issue comment disabled')
-          } else {
-            debug('Updated security comment with no new alerts')
-          }
-        }
-        if (
-          (diff.newPackages.length === 0 &&
-            diff.removedPackages.length === 0) ||
-          disableOverview
+      const [owner = '', repo = ''] = (
+        process.env['GITHUB_REPOSITORY'] ?? ''
+      ).split('/')
+      const { data: comments } = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: prNumber
+      })
+      type Comments = Awaited<
+        ReturnType<typeof octokit.rest.issues.listComments>
+      >['data']
+      console.log({ comments })
+      // Socket only comments
+      const socketComments: {
+        security: Comments
+        overview: Comments
+        ignore: Comments
+      } = {
+        security: [],
+        overview: [],
+        ignore: []
+      }
+      for (const comment of comments) {
+        if (comment.body?.includes('socket-security-comment-actions')) {
+          socketComments.security.push(comment)
+        } else if (comment.body?.includes('socket-overview-comment-actions')) {
+          socketComments.overview.push(comment)
+        } else if (
+          // Based on:
+          // To ignore an alert, reply with a comment starting with @SocketSecurity ignore
+          // followed by a space separated list of ecosystem/package-name@version specifiers.
+          // e.g. @SocketSecurity ignore npm/foo@1.0.0 or ignore all packages with @SocketSecurity ignore-all
+          comment.body?.split('\n').at(0)?.includes('SocketSecurity ignore')
         ) {
-          if (!updateOldOverviewComment) {
-            newOverviewComment = false
-            debug(
-              'No new/removed packages or Dependency Overview comment disabled'
-            )
-          } else {
-            debug('Updated overview comment with no dependencies')
-          }
+          socketComments.ignore.push(comment)
         }
-        debug(`Adding comments for ${scmType}`)
-        scm.addSocketComments(
-          securityComment,
-          overviewComment,
-          comments,
-          newSecurityComment,
-          newOverviewComment
-        )
-      } else {
-        console.log('Starting non-PR/MR flow')
-        diff = core.createNewDiff(targetPath, params, targetPath, noChange)
+        // Remove security comments
+        // https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/core/scm_comments.py#L84
       }
-      if (enableJson) {
-        debug('Outputting JSON Results')
-        outputConsoleJson(diff, sbomFile)
-      } else {
-        outputConsoleComments(diff, sbomFile)
-      }
-    } else {
-      console.log('API Mode')
-      diff = core.createNewDiff(targetPath, params, targetPath, noChange)
-      if (enableJson) {
-        outputConsoleJson(diff, sbomFile)
-      } else {
-        outputConsoleComments(diff, sbomFile)
-      }
-    }
-    if (diff !== null && licenseMode) {
-      const allPackages: { [key: string]: any } = {}
-      for (const packageId in diff.packages) {
-        const packageInfo: Package = diff.packages[packageId]
-        const output = {
-          id: packageId,
-          name: packageInfo.name,
-          version: packageInfo.version,
-          ecosystem: packageInfo.type,
-          direct: packageInfo.direct,
-          url: packageInfo.url,
-          license: packageInfo.license,
-          license_text: packageInfo.licenseText
-        }
-        allPackages[packageId] = output
-      }
-      core.saveFile(licenseFile, JSON.stringify(allPackages))
     }
   }
+}
+
+// Parse:
+// @SocketSecurity ignore pkg1 pkg2 ...
+// @SocketSecurity ignore ignore-all
+function parseIgnoreCommand(line: string) {
+  const result = { packages: [] as string[], ignoreAll: false }
+  const words = line.trim().replace(/\s+/g, ' ').split(' ')
+  if (words.at(1) === 'ignore-all') {
+    result.ignoreAll = true
+    return result
+  }
+  if (words.at(1) === 'ignore') {
+    for (let i = 2; i < words.length; i++) {
+      const pkg = words[i] as string
+      result.packages.push(pkg)
+    }
+    return result
+  }
+  return result
+}
+type Comments = Awaited<
+  ReturnType<typeof octokit.rest.issues.listComments>
+>['data']
+
+// Ref: https://github.com/socketdev-demo/javascript-threats/pull/89#issuecomment-2456015512
+function processSecurityComment({
+  securityComment,
+  ignoreComments
+}: {
+  securityComment: Comments[0]
+  ignoreComments: Comments
+}): string {
+  const result: string[] = []
+  let start = false
+
+  let ignoreAll = false
+  let ignoredPackages = []
+  for (const ignoreComment of ignoreComments) {
+    const parsed = parseIgnoreCommand(
+      ignoreComment.body?.split('\n').at(0) ?? ''
+    )
+    if (parsed.ignoreAll) {
+      ignoreAll = true
+      break
+    }
+    ignoredPackages.push(parsed.packages)
+  }
+
+  // Split the comment body into lines
+  for (let line of securityComment.body?.split('\n') ?? []) {
+    line = line.trim()
+
+    if (line.includes('start-socket-alerts-table')) {
+      start = true
+      result.push(line)
+    } else if (
+      start && // Checking that we're still inside socket table
+      !line.includes('end-socket-alerts-table') &&
+      // is not heading line?
+      !(
+        line === '|Alert|Package|Introduced by|Manifest File|CI|' ||
+        line.includes(':---')
+      ) &&
+      line !== ''
+    ) {
+      // Parsing Markdown data colunms
+      const [_, title, packageLink, introducedBy, manifest, ci] = line.split(
+        '|'
+      ) as [string, string, string, string, string, string]
+
+      // Parsing package link [npm/pkg](url)
+      let [ecosystem, pkg] = packageLink
+        .slice(1, packageLink.indexOf(']'))
+        .split('/', 2) as [string, string]
+      const [pkgName, pkgVersion] = pkg.split('@')
+
+      let ignore = false
+
+      // Checking if this package should be ignored
+      if (ignoreAll) {
+        ignore = true
+      } else {
+        for (const [ignoredPkgName, ignorePkgVersion] of ignoredPackages) {
+          if (
+            pkgName === ignoredPkgName &&
+            (pkgVersion === ignorePkgVersion || ignorePkgVersion === '*')
+          ) {
+            ignore = true
+            break
+          }
+        }
+      }
+
+      if (!ignore) {
+        result.push(line)
+      }
+    } else if (line.includes('end-socket-alerts-table')) {
+      start = false
+      result.push(line)
+    } else {
+      result.push(line)
+    }
+  }
+
+  const newBody = result.join('\n')
+  return newBody
 }
