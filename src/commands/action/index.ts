@@ -6,10 +6,9 @@ import { SocketSdk } from '@socketsecurity/sdk'
 import micromatch from 'micromatch'
 import ignore from 'ignore'
 const octokit = new Octokit()
-const socket = new SocketSdk(
-  'sktsec_MC9u35CaTKpnGaWsT-OG53Xlvp9NoVmzwEzOH1OinZTg_api',
-  { baseUrl: 'https://api-server-staging.onrender.com/v0/' }
-)
+const socket = new SocketSdk(getDefaultKey(), {
+  baseUrl: getDefaultAPIBaseUrl()
+})
 
 // const options = (github_variables = [
 //   'GITHUB_SHA',
@@ -123,19 +122,17 @@ export const action: CliSubcommand = {
       console.log({ comments })
       // Socket only comments
       const socketComments: {
-        security: Comments
-        overview: Comments
+        security?: Comments[0]
+        overview?: Comments[0]
         ignore: Comments
       } = {
-        security: [],
-        overview: [],
         ignore: []
       }
       for (const comment of comments) {
         if (comment.body?.includes('socket-security-comment-actions')) {
-          socketComments.security.push(comment)
+          socketComments.security = comment
         } else if (comment.body?.includes('socket-overview-comment-actions')) {
-          socketComments.overview.push(comment)
+          socketComments.overview = comment
         } else if (
           // Based on:
           // To ignore an alert, reply with a comment starting with @SocketSecurity ignore
@@ -145,11 +142,82 @@ export const action: CliSubcommand = {
         ) {
           socketComments.ignore.push(comment)
         }
-        // Remove security comments
-        // https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/core/scm_comments.py#L84
+      }
+
+      if (eventType() === 'comment') {
+        console.log('Comment initiated flow')
+        // removeCommentAlerts https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/core/github.py#L206
+        if (socketComments.security) {
+          // Handle ignore reactions https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/core/github.py#L215
+          for (const ignoreComment of socketComments.ignore) {
+            if (
+              ignoreComment.body?.includes('SocketSecurity ignore') &&
+              !commentReactionExists({
+                owner,
+                repo,
+                commentId: ignoreComment.id
+              })
+            ) {
+              postReaction({ owner, repo, commentId: ignoreComment.id })
+            }
+          }
+          const body = processSecurityComment({
+            securityComment: socketComments.security,
+            ignoreComments: socketComments.ignore
+          })
+          // Update comment
+          await octokit.issues.updateComment({
+            owner,
+            repo,
+            comment_id: socketComments.security.id,
+            body
+          })
+        }
+      } else if (eventType() === 'diff') {
+        // https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/socketcli.py#L341
+        console.log('Push initiated flow')
       }
     }
   }
+}
+
+async function postReaction({
+  owner,
+  repo,
+  commentId
+}: {
+  owner: string
+  repo: string
+  commentId: number
+}) {
+  // Post a reaction to the specified comment
+  await octokit.reactions.createForIssueComment({
+    owner,
+    repo,
+    comment_id: commentId,
+    content: '+1' // "+1" is the GitHub API representation for a thumbs-up reaction
+  })
+}
+
+async function commentReactionExists({
+  owner,
+  repo,
+  commentId
+}: {
+  owner: string
+  repo: string
+  commentId: number
+}): Promise<boolean> {
+  // Fetch reactions for the specified comment
+  const { data } = await octokit.reactions.listForIssueComment({
+    owner,
+    repo,
+    comment_id: commentId
+  })
+
+  // Check if any reaction has the content ":thumbsup:"
+  const exists = data.some(reaction => reaction.content === '+1')
+  return exists
 }
 
 // Parse:
@@ -199,7 +267,8 @@ function processSecurityComment({
     ignoredPackages.push(parsed.packages)
   }
 
-  // Split the comment body into lines
+  // Split the comment body into lines and update them
+  // to generate a new comment body
   for (let line of securityComment.body?.split('\n') ?? []) {
     line = line.trim()
 
@@ -207,7 +276,7 @@ function processSecurityComment({
       start = true
       result.push(line)
     } else if (
-      start && // Checking that we're still inside socket table
+      start &&
       !line.includes('end-socket-alerts-table') &&
       // is not heading line?
       !(
@@ -227,16 +296,15 @@ function processSecurityComment({
         .split('/', 2) as [string, string]
       const [pkgName, pkgVersion] = pkg.split('@')
 
-      let ignore = false
-
       // Checking if this package should be ignored
+      let ignore = false
       if (ignoreAll) {
         ignore = true
       } else {
         for (const [ignoredPkgName, ignorePkgVersion] of ignoredPackages) {
           if (
             pkgName === ignoredPkgName &&
-            (pkgVersion === ignorePkgVersion || ignorePkgVersion === '*')
+            (ignorePkgVersion === '*' || pkgVersion === ignorePkgVersion)
           ) {
             ignore = true
             break
@@ -244,9 +312,10 @@ function processSecurityComment({
         }
       }
 
-      if (!ignore) {
-        result.push(line)
+      if (ignore) {
+        break
       }
+      result.push(line)
     } else if (line.includes('end-socket-alerts-table')) {
       start = false
       result.push(line)
@@ -255,6 +324,141 @@ function processSecurityComment({
     }
   }
 
-  const newBody = result.join('\n')
-  return newBody
+  return result.join('\n')
+}
+
+/**
+ * 1. Get the head full scan. If it isn't present because this repo doesn't exist yet, return an empty full scan.
+ * 2. Create a new full scan for the current run.
+ * 3. Compare the head and new full scan.
+ * 4. Return a Diff report.
+ * @param path - Path of where to look for manifest files for the new full scan.
+ * @param params - Query parameters for the full scan endpoint.
+ * @param workspace - Path for the workspace.
+ * @param noChange - Skip the diff process if true.
+ * @return Diff report
+ */
+async function createNewDiff({
+  org,
+  repo
+}: {
+  path: string
+  org: string
+  repo: string
+  files: string[]
+  params: FullScanParams
+  workspace: string
+}): Promise<Diff> {
+  let headFullScanId: string | null
+  let headFullScan: any[]
+
+  try {
+    const orgRepoResponse = await socket.getOrgRepo(org, repo)
+    if (orgRepoResponse.success) {
+      if (!orgRepoResponse.data.head_full_scan_id) {
+        headFullScan = []
+      } else {
+        const label = 'Time to get head full-scan'
+        console.time(label)
+        const orgFullScanResponse = socket.getOrgFullScan(
+          org,
+          orgRepoResponse.data.head_full_scan_id,
+          undefined
+        )
+        console.timeEnd(label)
+      }
+    }
+  } catch (error) {
+    console.error(error)
+    headFullScanId = null
+    headFullScan = []
+  }
+
+  const label = 'Time to get new full-scan'
+  console.time(label)
+  const newFullScan = createFullScan(files, params, workspace)
+  newFullScan.packages = Core.createSbomDict(newFullScan.sbom_artifacts)
+  const newScanEnd = performance.now()
+  console.timeEnd(label)
+
+  const diffReport = Core.compareSboms(newFullScan.sbom_artifacts, headFullScan)
+  diffReport.packages = newFullScan.packages
+
+  // Set the diff ID and URLs
+  const baseSocket = 'https://socket.dev/dashboard/org'
+  diffReport.id = newFullScan.id
+  diffReport.report_url = `${baseSocket}/${orgSlug}/sbom/${diffReport.id}`
+
+  if (headFullScanId) {
+    diffReport.diff_url = `${baseSocket}/${orgSlug}/diff/${diffReport.id}/${headFullScanId}`
+  } else {
+    diffReport.diff_url = diffReport.report_url
+  }
+
+  return diffReport
+}
+
+import * as fs from 'fs'
+import * as path from 'path'
+import { platform } from 'os'
+import { URLSearchParams } from 'url'
+import { getDefaultKey } from '../../utils/sdk'
+
+interface FullScanParams {
+  [key: string]: any // Replace with specific properties of FullScanParams if known
+}
+
+interface FullScan {
+  id: string
+  sbom_artifacts: any[]
+  // Add other properties as needed
+}
+
+class Core {
+  static getSbomData(scanId: string): any[] {
+    // Implementation for retrieving SBOM data
+    return []
+  }
+}
+
+async function createFullScan(
+  files: string[],
+  params: FullScanParams,
+  workspace: string
+): Promise<FullScan> {
+  /**
+   * Calls the full scan API to create a new Full Scan
+   * @param files - Array of manifest files
+   * @param params - Set of query parameters to pass to the endpoint
+   * @param workspace - Path of workspace
+   * @return FullScan object
+   */
+  const sendFiles: Array<{ key: string; payload: [string, Buffer] }> = []
+  const createFullStart = performance.now()
+
+  console.debug('Creating new full scan')
+
+  const queryParams = new URLSearchParams(
+    params as Record<string, string>
+  ).toString()
+  const fullScan = await socket.createOrgFullScan(org, {}, files)
+
+  if (fullScan.success) {
+    const { id: fullScanId } = fullScan.data
+    if (fullScanId) {
+      const resp = await socket.getOrgFullScan(org, fullScanId, undefined)
+      // it's a ndjson stream
+      // build sbom_artifacts here
+      // https://github.com/SocketDev/socket-python-cli/blob/main/socketsecurity/core/__init__.py#L506
+      return { fullScan, sbomArtifacts }
+    }
+  }
+
+  const createFullEnd = performance.now()
+  const totalTime = createFullEnd - createFullStart
+  console.debug(
+    `New Full Scan created in ${(totalTime / 1000).toFixed(2)} seconds`
+  )
+
+  return fullScan
 }
