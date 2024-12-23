@@ -136,7 +136,7 @@
     "oxlint": "0.15.3",
     "prettier": "3.4.2",
     "read-package-up": "^11.0.0",
-    "rollup": "4.28.1",
+    "rollup": "4.29.1",
     "rollup-plugin-ts": "^3.4.5",
     "terminal-link": "^3.0.0",
     "tiny-updater": "^3.5.2",
